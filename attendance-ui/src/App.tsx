@@ -1,26 +1,22 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   Clock, 
   Calendar, 
-  FileText, 
   MapPin, 
   LogOut,
   CheckCircle,
   XCircle,
   AlertCircle,
   Bell,
-  Edit3,
   Plus,
   Clock3,
   Timer,
   Coffee,
-  Save,
   Upload,
   Building,
   Monitor,
   CalendarDays,
-  Zap,
   CheckSquare,
   X
 } from 'lucide-react';
@@ -60,11 +56,16 @@ const useCurrentTime = () => {
 };
 
 // 共通コンポーネント
-const MessageDisplay = ({ message, onClear }: any) => {
+const MessageDisplay = ({ message, onClear }) => {
   useEffect(() => {
     if (message.text) {
       const timer = setTimeout(onClear, 5000);
-      return () => clearTimeout(timer);
+type Message = { type: string; text: string };
+type MessageDisplayProps = {
+  message: Message;
+  onClear: () => void;
+};
+const MessageDisplay = ({ message, onClear }: MessageDisplayProps) => {
     }
   }, [message.text, onClear]);
 
@@ -95,8 +96,18 @@ const LoadingSpinner = () => (
   </div>
 );
 
-// ヘッダーコンポーネント
-const Header = ({ user, onLogout }: any) => (
+type User = {
+  id: number;
+  name: string;
+  department: string;
+  avatar: string;
+};
+type HeaderProps = {
+  user: User;
+  onLogout: () => void;
+};
+const Header = ({ user, onLogout }: HeaderProps) => (
+const Header = ({ user, onLogout }) => (
   <div className="relative backdrop-blur-sm bg-white/80 shadow-lg border-b border-white/20">
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       <div className="flex justify-between items-center py-6">
@@ -126,7 +137,11 @@ const Header = ({ user, onLogout }: any) => (
           </div>
           <button
             onClick={onLogout}
-            className="p-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all duration-300"
+type NavigationProps = {
+  activeScreen: string;
+  onScreenChange: (id: string) => void;
+};
+const Navigation = ({ activeScreen, onScreenChange }: NavigationProps) => {
           >
             <LogOut className="w-5 h-5" />
           </button>
@@ -137,7 +152,7 @@ const Header = ({ user, onLogout }: any) => (
 );
 
 // ナビゲーションコンポーネント
-const Navigation = ({ activeScreen, onScreenChange }: any) => {
+const Navigation = ({ activeScreen, onScreenChange }) => {
   const navItems = [
     { id: 'attendance', label: '勤怠登録', icon: Clock },
     { id: 'schedule', label: 'スケジュール提出', icon: CalendarDays },
@@ -177,7 +192,10 @@ const CurrentTime = () => {
   return (
     <div className="text-center mb-6">
       <div className="text-6xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent mb-2">
-        {currentTime.toLocaleTimeString('ja-JP')}
+type AttendanceStatusProps = {
+  status: string;
+};
+const AttendanceStatus = ({ status }: AttendanceStatusProps) => {
       </div>
       <div className="text-lg text-gray-600">
         {currentTime.toLocaleDateString('ja-JP', { 
@@ -192,7 +210,7 @@ const CurrentTime = () => {
 };
 
 // 勤怠状態コンポーネント
-const AttendanceStatus = ({ status }: any) => {
+const AttendanceStatus = ({ status }) => {
   const getStatusConfig = () => {
     switch (status) {
       case 'working':
@@ -216,7 +234,14 @@ const AttendanceStatus = ({ status }: any) => {
           icon: Timer,
           dotColor: 'bg-gray-400'
         };
-    }
+type ClockButtonsProps = {
+  status: string;
+  loading: boolean;
+  onClockIn: () => void;
+  onClockOut: () => void;
+  onRemoteClockIn: () => void;
+};
+const ClockButtons = ({ status, loading, onClockIn, onClockOut, onRemoteClockIn }: ClockButtonsProps) => {
   };
 
   const config = getStatusConfig();
@@ -234,7 +259,7 @@ const AttendanceStatus = ({ status }: any) => {
 };
 
 // 打刻ボタンコンポーネント
-const ClockButtons = ({ status, loading, onClockIn, onClockOut, onRemoteClockIn }: any) => {
+const ClockButtons = ({ status, loading, onClockIn, onClockOut, onRemoteClockIn }) => {
   return (
     <div className="space-y-4">
       <div className="flex space-x-4 justify-center">
@@ -243,7 +268,19 @@ const ClockButtons = ({ status, loading, onClockIn, onClockOut, onRemoteClockIn 
           disabled={loading || status === 'working'}
           className="flex items-center px-8 py-4 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-2xl font-semibold shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          <Building className="w-5 h-5 mr-2" />
+type TodayAttendanceProps = {
+  attendance: {
+    scheduledTime: string;
+    clockIn: string | null;
+    clockOut: string | null;
+    workHours: string;
+    breakHours: string;
+    status: string;
+    clockInTime: Date;
+    canEdit: boolean;
+  };
+};
+const TodayAttendance = ({ attendance }: TodayAttendanceProps) => (
           出勤
         </button>
         <button
@@ -262,13 +299,25 @@ const ClockButtons = ({ status, loading, onClockIn, onClockOut, onRemoteClockIn 
           <Timer className="w-5 h-5 mr-2" />
           退勤
         </button>
-      </div>
-    </div>
-  );
-};
-
-// 今日の勤怠コンポーネント
-const TodayAttendance = ({ attendance }: any) => (
+  type ScheduleItem = {
+    type: string;
+    startTime?: string;
+    endTime?: string;
+  const [bulkSchedule, setBulkSchedule] = useState<{
+    type: string;
+    startTime: string;
+    endTime: string;
+    dayOfWeek: number[];
+    startDate: string;
+    endDate: string;
+  }>({
+    type: 'work',
+    startTime: '09:00',
+    endTime: '18:00',
+    dayOfWeek: [],
+    startDate: '',
+    endDate: ''
+  });
   <div className="bg-white/70 backdrop-blur-sm rounded-3xl shadow-xl border border-white/20 p-8 mb-8">
     <h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center">
       <Calendar className="w-6 h-6 mr-3" />
@@ -291,7 +340,7 @@ const TodayAttendance = ({ attendance }: any) => (
         <h3 className="text-sm font-medium text-orange-600 mb-2">勤務時間</h3>
         <p className="text-lg font-semibold text-orange-800">{attendance.workHours}</p>
       </div>
-    </div>
+  const handleDateClick = (date: { date: Date; isCurrentMonth: boolean }) => {
   </div>
 );
 
@@ -299,7 +348,7 @@ const TodayAttendance = ({ attendance }: any) => (
 const ScheduleScreen = () => {
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
-  const [schedule, setSchedule] = useState<any>({});
+  const [schedule, setSchedule] = useState({});
   const [message, setMessage] = useState({ type: '', text: '' });
   const [loading, setLoading] = useState(false);
   const [showBulkInput, setShowBulkInput] = useState(false);
@@ -307,10 +356,10 @@ const ScheduleScreen = () => {
     type: 'work',
     startTime: '09:00',
     endTime: '18:00',
-    dayOfWeek: [] as number[],
+    dayOfWeek: [],
     startDate: '',
     endDate: ''
-  });
+  const getDateStyle = (date: { date: Date; isCurrentMonth: boolean }) => {
 
   // カレンダー生成
   const generateCalendar = () => {
@@ -340,17 +389,17 @@ const ScheduleScreen = () => {
     return days;
   };
 
-  const handleDateClick = (date: any) => {
+  const handleDateClick = (date) => {
     if (!date.isCurrentMonth) return;
     
     const dateKey = `${date.date.getFullYear()}-${String(date.date.getMonth() + 1).padStart(2, '0')}-${String(date.date.getDate()).padStart(2, '0')}`;
     const currentSchedule = schedule[dateKey] || { type: 'work', startTime: '09:00', endTime: '18:00' };
     
-    let nextType: string;
+    let nextType;
     if (currentSchedule.type === 'work') nextType = 'holiday';
     else nextType = 'work';
     
-    setSchedule((prev: any) => ({
+    setSchedule(prev => ({
       ...prev,
       [dateKey]: {
         ...currentSchedule,
@@ -359,8 +408,8 @@ const ScheduleScreen = () => {
     }));
   };
 
-  const getDateStyle = (date: any) => {
-    if (!date.isCurrentMonth) return 'text-gray-300 cursor-not-allowed';
+  const getDateStyle = (date) => {
+  const handleDayOfWeekChange = (dayIndex: number) => {
     
     const dateKey = `${date.date.getFullYear()}-${String(date.date.getMonth() + 1).padStart(2, '0')}-${String(date.date.getDate()).padStart(2, '0')}`;
     const scheduleItem = schedule[dateKey] || { type: 'work' };
@@ -409,7 +458,7 @@ const ScheduleScreen = () => {
     setMessage({ type: 'success', text: '一括設定が完了しました' });
   };
 
-  const handleDayOfWeekChange = (dayIndex: number) => {
+  const handleDayOfWeekChange = (dayIndex) => {
     setBulkSchedule(prev => ({
       ...prev,
       dayOfWeek: prev.dayOfWeek.includes(dayIndex)
@@ -644,7 +693,7 @@ const AttendanceScreen = () => {
   const handleClockIn = async (workType = 'office') => {
     setLoading(true);
     setTimeout(() => {
-      setLoading(false);
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
       setMessage({ type: 'success', text: `${workType === 'remote' ? 'リモート' : 'オフィス'}出勤打刻が完了しました` });
       setTodayAttendance(prev => ({ ...prev, status: 'working' }));
     }, 1000);
@@ -693,7 +742,7 @@ const HolidayScreen = () => {
     reason: ''
   });
 
-  const handleSubmit = async (e: any) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     setTimeout(() => {
@@ -788,7 +837,7 @@ const LocationScreen = () => {
     endTime: '18:00'
   });
 
-  const handleSubmit = async (e: any) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     setTimeout(() => {
@@ -915,4 +964,4 @@ const AttendanceApp = () => {
   );
 };
 
-export default AttendanceApp;
+export default AttendanceApp; 
