@@ -50,26 +50,8 @@ const App: React.FC = () => {
     console.log('ログアウトしました');
   };
 
-  const renderScreen = () => {
-    if (!isLoggedIn) {
-      return <LoginScreen onLoginSuccess={handleLoginSuccess} />;
-    }
-
-    switch (activeScreen) {
-      case 'attendance':
-        return <AttendanceScreen />;
-      case 'edit':
-        return <EditScreen />;
-      case 'holiday':
-        return <HolidayScreen />;
-      case 'schedule':
-        return <ScheduleScreen />;
-      case 'location':
-        return <LocationScreen />;
-      default:
-        return <AttendanceScreen />;
-    }
-  };
+  // renderScreen関数は不要になるか、シンプルになります。
+  // 各画面コンポーネントを直接レンダリングし、CSSで表示・非表示を制御します。
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 font-inter">
@@ -84,11 +66,39 @@ const App: React.FC = () => {
         <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-gradient-to-br from-blue-400 to-indigo-400 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-pulse"></div>
       </div>
 
-      {isLoggedIn && <Header user={user} onLogout={handleLogout} />}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-8">
-        {isLoggedIn && <Navigation activeScreen={activeScreen} onScreenChange={setActiveScreen} />}
-        {renderScreen()}
-      </div>
+      {!isLoggedIn ? (
+        <LoginScreen onLoginSuccess={handleLoginSuccess} />
+      ) : (
+        <>
+          <Header user={user} onLogout={handleLogout} />
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-8">
+            <Navigation activeScreen={activeScreen} onScreenChange={setActiveScreen} />
+            
+            {/* ここが変更点: 各画面コンポーネントを常にレンダリングし、CSSで表示を制御 */}
+            <div style={{ display: activeScreen === 'attendance' ? 'block' : 'none' }}>
+              <AttendanceScreen />
+            </div>
+            <div style={{ display: activeScreen === 'edit' ? 'block' : 'none' }}>
+              <EditScreen />
+            </div>
+            <div style={{ display: activeScreen === 'holiday' ? 'block' : 'none' }}>
+              <HolidayScreen />
+            </div>
+            <div style={{ display: activeScreen === 'schedule' ? 'block' : 'none' }}>
+              <ScheduleScreen />
+            </div>
+            <div style={{ display: activeScreen === 'location' ? 'block' : 'none' }}>
+              <LocationScreen />
+            </div>
+            {/* デフォルトの画面が必要な場合、ここに含めるか、上記いずれかをデフォルトとします */}
+            {activeScreen !== 'attendance' && activeScreen !== 'edit' && activeScreen !== 'holiday' && activeScreen !== 'schedule' && activeScreen !== 'location' && (
+              <div style={{ display: 'block' }}>
+                <AttendanceScreen /> {/* 未知のactiveScreenの場合のデフォルト */}
+              </div>
+            )}
+          </div>
+        </>
+      )}
 
       <CustomModal
         isOpen={showLogoutConfirm}

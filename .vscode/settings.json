@@ -3,7 +3,7 @@
   "typescript.suggest.autoImports": true,
   "typescript.preferences.organizeImports": true,
   "editor.codeActionsOnSave": {
-    "source.organizeImports": true
+    "source.organizeImports": "explicit"
   },
   "files.associations": {
     "*.tsx": "typescriptreact"
