@@ -1,0 +1,14 @@
+{
+  "typescript.preferences.includePackageJsonAutoImports": "off",
+  "typescript.suggest.autoImports": true,
+  "typescript.preferences.organizeImports": true,
+  "editor.codeActionsOnSave": {
+    "source.organizeImports": true
+  },
+  "files.associations": {
+    "*.tsx": "typescriptreact"
+  },
+  "emmet.includeLanguages": {
+    "typescriptreact": "html"
+  }
+}
