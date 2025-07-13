@@ -1,8 +1,7 @@
 import { Clock } from 'lucide-react';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { AttendanceRecord, ClockInRequestDto, Message, UserAttendanceUpdateRequestDto } from '../../types';
 import { apiClient } from '../../utils/api';
-import { initialMockAttendanceHistory, initialMockTodayAttendance } from '../../utils/constants';
 import { CurrentTime } from '../common/CurrentTime';
 import { LoadingSpinner } from '../common/LoadingSpinner';
 import { MessageDisplay } from '../common/MessageDisplay';
@@ -16,8 +15,69 @@ export const AttendanceScreen: React.FC = () => {
   const [message, setMessage] = useState<Message>({ type: '', text: '' });
   const [loading, setLoading] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
-  const [todayAttendance, setTodayAttendance] = useState<AttendanceRecord>(initialMockTodayAttendance);
-  const [attendanceHistory, setAttendanceHistory] = useState<AttendanceRecord[]>(initialMockAttendanceHistory);
+  const [todayAttendance, setTodayAttendance] = useState<AttendanceRecord>({
+    date: new Date().toISOString().split('T')[0],
+    scheduledTime: '09:00 ～ 18:00 （実労働: 8時間）',
+    clockIn: null,
+    clockOut: null,
+    workHours: '0時間0分',
+    overtime: '0分',
+    breakHours: '0時間（自動）',
+    status: 'complete',
+    isWithin30Minutes: false
+  });
+  const [attendanceHistory, setAttendanceHistory] = useState<AttendanceRecord[]>([]);
+  const [selectedMonth, setSelectedMonth] = useState<string>(getCurrentMonth());
+
+  function getCurrentMonth() {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  }
+
+  // 勤怠履歴をAPIから取得
+  const loadAttendanceHistory = async (month: string) => {
+    try {
+      const userId = Number(localStorage.getItem('userId'));
+      if (!userId) {
+        console.error('ユーザーIDが見つかりません');
+        return;
+      }
+
+      console.log(`勤怠履歴取得: userId=${userId}, month=${month}`);
+      
+      const response = await apiClient.get(`/api/attendance/monthly/${userId}?month=${month}`);
+      
+      if (response.status === 200) {
+        console.log('勤怠履歴データ:', response.data);
+        if (response.data && response.data.length > 0) {
+          setAttendanceHistory(response.data);
+        } else {
+          setAttendanceHistory([]);
+        }
+      } else {
+        console.error('勤怠履歴取得エラー:', response.status);
+        setAttendanceHistory([]);
+      }
+    } catch (error) {
+      console.error('勤怠履歴取得エラー:', error);
+      setAttendanceHistory([]);
+    }
+  };
+
+  // 月変更ハンドラー
+  const handleMonthChange = (newMonth: string) => {
+    setSelectedMonth(newMonth);
+    loadAttendanceHistory(newMonth);
+  };
+
+  // 初期化とデータ取得
+  useEffect(() => {
+    loadAttendanceHistory(selectedMonth);
+  }, [selectedMonth]);
+
+  useEffect(() => {
+    loadAttendanceHistory(getCurrentMonth());
+  }, []);
 
   const getCurrentFormattedTime = () => {
     const now = new Date();
@@ -65,9 +125,9 @@ export const AttendanceScreen: React.FC = () => {
         userId: userId,
         type: "WORK"
       };
-      const response = await apiClient.post('/api/attendance/clock-in', requestData);
+      const response = await apiClient.post('/api/attendance/clockin', requestData);
 
-      if (response.data.success) {
+      if (response.status === 200) {
         setTodayAttendance(prev => ({
           ...prev,
           clockIn: now,
@@ -75,6 +135,9 @@ export const AttendanceScreen: React.FC = () => {
           isWithin30Minutes: true
         }));
         setMessage({ type: 'success', text: response.data.message || `出勤打刻が完了しました: ${now}` });
+        
+        // 勤怠履歴を更新
+        await loadAttendanceHistory(selectedMonth);
       } else {
         setMessage({ type: 'error', text: response.data.message || '出勤打刻に失敗しました' });
       }
@@ -103,7 +166,7 @@ export const AttendanceScreen: React.FC = () => {
       };
       const response = await apiClient.post('/api/attendance/clockin', requestData);
 
-      if (response.data.success) {
+      if (response.status === 200) {
         setTodayAttendance(prev => ({
           ...prev,
           clockIn: now,
@@ -111,6 +174,9 @@ export const AttendanceScreen: React.FC = () => {
           isWithin30Minutes: true
         }));
         setMessage({ type: 'success', text: response.data.message || `リモート出勤打刻が完了しました: ${now}` });
+        
+        // 勤怠履歴を更新
+        await loadAttendanceHistory(selectedMonth);
       } else {
         setMessage({ type: 'error', text: response.data.message || 'リモート出勤打刻に失敗しました' });
       }
@@ -135,7 +201,7 @@ export const AttendanceScreen: React.FC = () => {
 
       const response = await apiClient.post(`/api/attendance/clock-out/${userId}`);
 
-      if (response.data.success) {
+      if (response.status === 200) {
         if (todayAttendance.clockIn) {
           const { workHours, breakHours, overtime } = calculateWorkHours(todayAttendance.clockIn, now);
           setTodayAttendance(prev => ({
@@ -147,10 +213,13 @@ export const AttendanceScreen: React.FC = () => {
             status: 'complete',
             isWithin30Minutes: false
           }));
-          setMessage({ type: 'success', text: response.data.message || `退勤打刻が完了しました: ${now}` });
+          setMessage({ type: 'success', text: `退勤打刻が完了しました: ${now}` });
         } else {
           setMessage({ type: 'error', text: '出勤打刻がされていません。' });
         }
+        
+        // 勤怠履歴を更新
+        await loadAttendanceHistory(selectedMonth);
       } else {
         setMessage({ type: 'error', text: response.data.message || '退勤打刻に失敗しました' });
       }
@@ -182,15 +251,18 @@ export const AttendanceScreen: React.FC = () => {
         clockIn: newTime
       };
 
-      const response = await apiClient.put('/api/attendance/self-correction', requestData);
+      const response = await apiClient.post(`/api/attendance/update/${userId}`, requestData);
 
-      if (response.data.success) {
+      if (response.status === 200) {
         setTodayAttendance(prev => ({
           ...prev,
           clockIn: newTime,
           isWithin30Minutes: false
         }));
-        setMessage({ type: 'success', text: response.data.message || `打刻時刻を ${newTime} に修正しました` });
+        setMessage({ type: 'success', text: `打刻時刻を ${newTime} に修正しました` });
+        
+        // 勤怠履歴を更新
+        await loadAttendanceHistory(selectedMonth);
       } else {
         setMessage({ type: 'error', text: response.data.message || '打刻時刻の修正に失敗しました' });
       }
@@ -225,7 +297,11 @@ export const AttendanceScreen: React.FC = () => {
         {loading && <LoadingSpinner />}
       </div>
       <TodayAttendance attendance={todayAttendance} />
-      <AttendanceTable history={attendanceHistory} />
+      <AttendanceTable 
+        history={attendanceHistory} 
+        selectedMonth={selectedMonth}
+        onMonthChange={handleMonthChange}
+      />
       
       <ClockEditDialog
         isOpen={showEditDialog}
