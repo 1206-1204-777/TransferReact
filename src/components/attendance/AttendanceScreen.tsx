@@ -236,6 +236,7 @@ export const AttendanceScreen: React.FC = () => {
   };
 
   const handleSaveEditedTime = async (newTime: string) => {
+  console.log('送信する時刻:', newTime); // 形式確認用
     setLoading(true);
     try {
       const userId = Number(localStorage.getItem('userId'));
@@ -248,7 +249,7 @@ export const AttendanceScreen: React.FC = () => {
       const requestData: UserAttendanceUpdateRequestDto = {
         userId: userId,
         date: new Date().toISOString().split('T')[0],
-        clockIn: newTime
+        startTime: newTime
       };
 
       const response = await apiClient.post(`/api/attendance/update/${userId}`, requestData);

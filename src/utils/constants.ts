@@ -1,3 +1,4 @@
+// src/utils/constants.ts
 import { AttendanceRecord, EditRequest, HolidayRequest, Location, OvertimeRequest, User } from '../types';
 
 // モックデータ
@@ -50,35 +51,9 @@ export const initialMockAttendanceHistory: AttendanceRecord[] = [
   }
 ];
 
-export const initialMockEditHistory: EditRequest[] = [
-  {
-    id: 1,
-    requestDate: '2025-06-15',
-    targetDate: '2025-06-14',
-    changes: '退勤: 18:00 → 19:30',
-    reason: '打刻忘れ',
-    status: 'approved',
-    approver: '鈴木 部長'
-  },
-  {
-    id: 2,
-    requestDate: '2025-06-10',
-    targetDate: '2025-06-10',
-    changes: '出勤: 10:30 → 09:00',
-    reason: 'システムエラー',
-    status: 'approved',
-    approver: '鈴木 部長'
-  },
-  {
-    id: 3,
-    requestDate: '2025-06-21',
-    targetDate: '2025-06-20',
-    changes: '出勤: 08:50 → 09:00',
-    reason: '打刻ミス',
-    status: 'pending',
-    approver: '-'
-  }
-];
+// EditRequest の型変更に合わせて userId を追加し、関連プロパティも追加
+export const initialMockEditHistory: EditRequest[] = [];
+
 
 export const initialMockHolidayRequests: HolidayRequest[] = [
   {
