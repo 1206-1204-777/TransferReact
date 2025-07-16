@@ -56,7 +56,7 @@ export const HolidayScreen: React.FC = () => {
     reason: ''
   });
 
-  const currentUserId = 1;
+const currentUserId = Number(localStorage.getItem('userId'));
 
   useEffect(() => {
     loadHolidayRequests();
@@ -64,144 +64,178 @@ export const HolidayScreen: React.FC = () => {
   }, []);
 
   // 休日申請一覧を読み込み
-  const loadHolidayRequests = async () => {
-    setLoading(true);
-    try {
-      // デモデータ
-      setHolidayRequests([
-        {
-          id: 1,
-          date: '2025-08-15',
-          type: 'PAID',
-          reason: '家族旅行のため',
-          status: 'APPROVED',
-          createdAt: '2025-07-20T10:30:00',
-          approverName: '鈴木 部長'
-        },
-        {
-          id: 2,
-          date: '2025-08-20',
-          type: 'SPECIAL',
-          reason: '結婚式参列のため',
-          status: 'PENDING',
-          createdAt: '2025-07-22T14:15:00'
-        }
-      ]);
-    } catch (error) {
-      console.error('休日申請取得エラー:', error);
-      setMessage({ type: 'error', text: '休日申請データの読み込みに失敗しました' });
-    } finally {
-      setLoading(false);
+ const loadHolidayRequests = async () => {
+  setLoading(true);
+  try {
+    const userId = Number(localStorage.getItem('userId'));
+    if (!userId) return;
+
+    const { apiClient } = await import('../../utils/api');
+    const response = await apiClient.get(`/api/personal-holidays/user/${userId}`);
+
+    if (response.status === 200) {
+      setHolidayRequests(response.data);
     }
-  };
+  } catch (error) {
+    console.error('休日申請取得エラー:', error);
+    setMessage({ type: 'error', text: '休日申請データの読み込みに失敗しました' });
+  } finally {
+    setLoading(false);
+  }
+};
 
   // 残業申請一覧を読み込み
-  const loadOvertimeRequests = async () => {
-    try {
-      // デモデータ
-      setOvertimeRequests([
-        {
-          id: 1,
-          date: '2025-07-25',
-          startTime: '18:00',
-          endTime: '21:00',
-          reason: 'プロジェクトデッドライン対応',
-          status: 'APPROVED',
-          createdAt: '2025-07-24T16:30:00',
-          approverName: '鈴木 部長',
-          estimatedHours: 3
-        },
-        {
-          id: 2,
-          date: '2025-07-30',
-          startTime: '18:00',
-          endTime: '20:00',
-          reason: '月末処理対応',
-          status: 'PENDING',
-          createdAt: '2025-07-29T17:45:00',
-          estimatedHours: 2
-        }
-      ]);
-    } catch (error) {
-      console.error('残業申請取得エラー:', error);
+const loadOvertimeRequests = async () => {
+  try {
+    const userId = Number(localStorage.getItem('userId'));
+    if (!userId) return;
+
+    const { apiClient } = await import('../../utils/api');
+    const response = await apiClient.get(`/api/overtime?userId=${userId}`);
+
+    if (response.status === 200) {
+      setOvertimeRequests(response.data);
     }
-  };
+  } catch (error) {
+    console.error('残業申請取得エラー:', error);
+  }
+};
 
   // 休日申請送信
-  const submitHolidayRequest = async () => {
-    if (!holidayForm.date || !holidayForm.reason.trim()) {
-      setMessage({ type: 'error', text: '日付と理由を入力してください' });
+const submitHolidayRequest = async () => {
+  if (!holidayForm.date || !holidayForm.reason.trim()) {
+    setMessage({ type: 'error', text: '日付と理由を入力してください' });
+    return;
+  }
+
+  setLoading(true);
+  try {
+    const userId = Number(localStorage.getItem('userId'));
+    if (!userId) {
+      setMessage({ type: 'error', text: 'ユーザーIDが見つかりません' });
       return;
     }
 
-    setLoading(true);
-    try {
+    const requestData = {
+      userId: userId,
+      holidayDate: holidayForm.date,
+      holidayType: holidayForm.type,
+      reason: holidayForm.reason
+    };
+
+    // APIインポートを追加
+    const { apiClient } = await import('../../utils/api');
+    const response = await apiClient.post('/api/personal-holidays/apply', requestData);
+
+    if (response.status === 201) {
       setMessage({ type: 'success', text: '休日申請を送信しました' });
       setHolidayForm({ date: '', type: 'PAID', reason: '' });
       await loadHolidayRequests();
-    } catch (error) {
-      console.error('休日申請送信エラー:', error);
-      setMessage({ type: 'error', text: '申請の送信に失敗しました' });
-    } finally {
-      setLoading(false);
     }
-  };
+  } catch (error: any) {
+    console.error('休日申請送信エラー:', error);
+    setMessage({ type: 'error', text: error.response?.data || '申請の送信に失敗しました' });
+  } finally {
+    setLoading(false);
+  }
+};
 
   // 残業申請送信
-  const submitOvertimeRequest = async () => {
-    if (!overtimeForm.date || !overtimeForm.startTime || !overtimeForm.endTime || !overtimeForm.reason.trim()) {
-      setMessage({ type: 'error', text: 'すべての項目を入力してください' });
+ const submitOvertimeRequest = async () => {
+  if (!overtimeForm.date || !overtimeForm.startTime || !overtimeForm.endTime || !overtimeForm.reason.trim()) {
+    setMessage({ type: 'error', text: 'すべての項目を入力してください' });
+    return;
+  }
+
+  if (overtimeForm.startTime >= overtimeForm.endTime) {
+    setMessage({ type: 'error', text: '終了時間は開始時間より後に設定してください' });
+    return;
+  }
+
+  setLoading(true);
+  try {
+    const userId = Number(localStorage.getItem('userId'));
+    if (!userId) {
+      setMessage({ type: 'error', text: 'ユーザーIDが見つかりません' });
       return;
     }
 
-    if (overtimeForm.startTime >= overtimeForm.endTime) {
-      setMessage({ type: 'error', text: '終了時間は開始時間より後に設定してください' });
-      return;
-    }
+    const requestData = {
+      userId: userId,
+      targetDate: overtimeForm.date,
+      startTime: overtimeForm.startTime,
+      endTime: overtimeForm.endTime,
+      reason: overtimeForm.reason
+    };
 
-    setLoading(true);
-    try {
+    const { apiClient } = await import('../../utils/api');
+    const response = await apiClient.post('/api/overtime', requestData);
+
+    if (response.status === 200) {
       setMessage({ type: 'success', text: '残業申請を送信しました' });
       setOvertimeForm({ date: '', startTime: '18:00', endTime: '20:00', reason: '' });
       await loadOvertimeRequests();
-    } catch (error) {
-      console.error('残業申請送信エラー:', error);
-      setMessage({ type: 'error', text: '申請の送信に失敗しました' });
-    } finally {
-      setLoading(false);
     }
-  };
+  } catch (error: any) {
+    console.error('残業申請送信エラー:', error);
+    setMessage({ type: 'error', text: '申請の送信に失敗しました' });
+  } finally {
+    setLoading(false);
+  }
+};
 
   // 休日申請キャンセル
-  const cancelHolidayRequest = async (requestId: number) => {
-    if (!window.confirm('この休日申請をキャンセルしてもよろしいですか？')) {
+const cancelHolidayRequest = async (requestId: number) => {
+  if (!window.confirm('この休日申請をキャンセルしてもよろしいですか？')) {
+    return;
+  }
+
+  try {
+    const userId = Number(localStorage.getItem('userId'));
+    if (!userId) {
+      setMessage({ type: 'error', text: 'ユーザーIDが見つかりません' });
       return;
     }
 
-    try {
+    const { apiClient } = await import('../../utils/api');
+    const response = await apiClient.delete(`/api/personal-holidays/${requestId}/cancel/user/${userId}`);
+
+    if (response.status === 200) {
       setMessage({ type: 'success', text: '休日申請をキャンセルしました' });
       await loadHolidayRequests();
-    } catch (error) {
-      console.error('休日申請キャンセルエラー:', error);
-      setMessage({ type: 'error', text: 'キャンセルに失敗しました' });
     }
-  };
+  } catch (error: any) {
+    console.error('休日申請キャンセルエラー:', error);
+    setMessage({ type: 'error', text: error.response?.data || 'キャンセルに失敗しました' });
+  }
+};
 
   // 残業申請キャンセル
-  const cancelOvertimeRequest = async (requestId: number) => {
-    if (!window.confirm('この残業申請をキャンセルしてもよろしいですか？')) {
+const cancelOvertimeRequest = async (requestId: number) => {
+  if (!window.confirm('この残業申請をキャンセルしてもよろしいですか？')) {
+    return;
+  }
+
+  try {
+    const userId = Number(localStorage.getItem('userId'));
+    if (!userId) {
+      setMessage({ type: 'error', text: 'ユーザーIDが見つかりません' });
       return;
     }
 
-    try {
+    const { apiClient } = await import('../../utils/api');
+    // 残業申請のキャンセルAPI（バックエンドに追加が必要）
+    const response = await apiClient.delete(`/api/overtime/${requestId}/cancel/user/${userId}`);
+
+    if (response.status === 200) {
       setMessage({ type: 'success', text: '残業申請をキャンセルしました' });
       await loadOvertimeRequests();
-    } catch (error) {
-      console.error('残業申請キャンセルエラー:', error);
-      setMessage({ type: 'error', text: 'キャンセルに失敗しました' });
     }
-  };
-
+  } catch (error: any) {
+    console.error('残業申請キャンセルエラー:', error);
+    setMessage({ type: 'error', text: error.response?.data || 'キャンセルに失敗しました' });
+  }
+};
   // 残業時間計算
   const calculateOvertimeHours = (startTime: string, endTime: string): number => {
     const [startHour, startMin] = startTime.split(':').map(Number);

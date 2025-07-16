@@ -1,5 +1,5 @@
 // src/utils/constants.ts
-import { AttendanceRecord, EditRequest, HolidayRequest, Location, OvertimeRequest, User } from '../types';
+import { AttendanceRecord, EditRequest, Location, OvertimeRequest, User } from '../types';
 
 // モックデータ
 export const initialMockUser: User = {
@@ -55,24 +55,7 @@ export const initialMockAttendanceHistory: AttendanceRecord[] = [
 export const initialMockEditHistory: EditRequest[] = [];
 
 
-export const initialMockHolidayRequests: HolidayRequest[] = [
-  {
-    id: 1,
-    requestDate: '2025-06-15',
-    holidayDate: '2025-06-20',
-    type: 'paid',
-    status: 'pending',
-    approver: '-'
-  },
-  {
-    id: 2,
-    requestDate: '2025-06-14',
-    holidayDate: '2025-06-25',
-    type: 'sick',
-    status: 'pending',
-    approver: '-'
-  }
-];
+
 
 export const initialMockOvertimeRequests: OvertimeRequest[] = [
   {

@@ -61,6 +61,7 @@ export interface EditRequest {
 }
 
 export interface HolidayRequest {
+  createdAt: string | number | Date;
   id: number;
   requestDate: string;
   holidayDate: string;
@@ -117,5 +118,35 @@ export interface CorrectionRequestDto {
   targetDate: string;
   requestedClockIn?: string;
   requestedClockOut?: string;
+  reason: string;
+}
+
+// 休日申請関連
+export interface PersonalHolidayRequest {
+  userId: number;
+  holidayDate: string;
+  holidayType: 'PAID' | 'SPECIAL' | 'SICK' | 'OTHER';
+  reason: string;
+}
+
+export interface PersonalHolidayResponse {
+  id: number;
+  userId: number;
+  username: string;
+  holidayDate: string;
+  holidayType: string;
+  reason: string;
+  status: string;
+  approverName: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// 残業申請関連
+export interface OvertimeRequestDto {
+  userId: number;
+  targetDate: string;
+  startTime: string;
+  endTime: string;
   reason: string;
 }
