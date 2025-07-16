@@ -26,82 +26,82 @@ export const LocationScreen: React.FC = () => {
   const [isEditing, setIsEditing] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [currentUserId] = useState(1); // 実際はログインユーザーIDを取得
-
-  useEffect(() => {
-    loadLocations();
-  }, []);
+  const currentUserId = Number(localStorage.getItem('userId'));
 
   // 勤務地一覧を読み込み
-  const loadLocations = async () => {
-    setLoading(true);
-    try {
-      // 実際のAPI呼び出し
-      const response = await fetch('/api/locations', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('jwtToken')}`
-        }
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        setLocations(data);
-      } else {
-        throw new Error('勤務地データの取得に失敗しました');
-      }
-    } catch (error) {
-      console.error('勤務地取得エラー:', error);
-      setMessage({ type: 'error', text: 'データの読み込みに失敗しました' });
-      
-      // デモデータ
-      setLocations([
-        { id: 1, name: '東京オフィス', startTime: '09:00', endTime: '18:00', createdBy: '山田 太郎', createdById: 1 },
-        { id: 2, name: '大阪オフィス', startTime: '09:30', endTime: '18:30', createdBy: '山田 太郎', createdById: 1 },
-        { id: 3, name: '名古屋オフィス', startTime: '09:00', endTime: '17:30', createdBy: '山田 太郎', createdById: 1 }
-      ]);
-    } finally {
-      setLoading(false);
+const loadLocations = async () => {
+  setLoading(true);
+  try {
+    const { apiClient } = await import('../../utils/api');
+    const response = await apiClient.get('/api/locations');
+    
+    if (response.status === 200) {
+      setLocations(response.data);
     }
-  };
+  } catch (error: any) {
+    console.error('勤務地取得エラー:', error);
+    setMessage({ type: 'error', text: 'データの読み込みに失敗しました' });
+  } finally {
+    setLoading(false);
+  }
+};
 
   // フォーム送信処理
-  const handleSubmit = () => {
-    if (!formData.name.trim()) {
-      setMessage({ type: 'error', text: '勤務地名を入力してください' });
+const handleSubmit = async () => {
+  if (!formData.name.trim()) {
+    setMessage({ type: 'error', text: '勤務地名を入力してください' });
+    return;
+  }
+
+  if (formData.startTime >= formData.endTime) {
+    setMessage({ type: 'error', text: '終了時間は開始時間より後に設定してください' });
+    return;
+  }
+
+  setLoading(true);
+  
+  try {
+    const { apiClient } = await import('../../utils/api');
+    const userId = Number(localStorage.getItem('userId'));
+    
+    if (!userId) {
+      setMessage({ type: 'error', text: 'ユーザーIDが見つかりません' });
       return;
     }
 
-    setLoading(true);
-    
-    try {
-      if (isEditing) {
-        // 編集の場合
-        setLocations(prev => prev.map(loc => 
-          loc.id === isEditing 
-            ? { ...loc, ...formData }
-            : loc
-        ));
+    const requestData = {
+      name: formData.name,
+      startTime: formData.startTime,
+      endTime: formData.endTime,
+      createdBy : userId
+    };
+
+    if (isEditing) {
+      // 編集機能（バックエンドにPUTエンドポイントが必要）
+      const response = await apiClient.put(`/api/locations/${isEditing}`, requestData);
+      
+      if (response.status === 200) {
         setMessage({ type: 'success', text: '勤務地が更新されました' });
-      } else {
-        // 新規登録の場合
-        const newLocation: Location = {
-          id: Date.now(),
-          ...formData,
-          createdBy: '山田 太郎',
-          createdById: currentUserId
-        };
-        setLocations(prev => [...prev, newLocation]);
+      }
+    } else {
+      // 新規登録
+      const response = await apiClient.post('/api/locations', requestData);
+      
+      if (response.status === 201) {
         setMessage({ type: 'success', text: '勤務地が登録されました' });
       }
-      
-      clearForm();
-    } catch (error) {
-      console.error('勤務地登録エラー:', error);
-      setMessage({ type: 'error', text: '登録に失敗しました' });
-    } finally {
-      setLoading(false);
     }
-  };
+    
+    clearForm();
+    await loadLocations(); // 一覧を再読み込み
+    
+  } catch (error: any) {
+    console.error('勤務地登録エラー:', error);
+    setMessage({ type: 'error', text: error.response?.data || '登録に失敗しました' });
+  } finally {
+    setLoading(false);
+  }
+};
 
   // 編集開始
   const startEdit = (location: Location) => {
@@ -114,19 +114,38 @@ export const LocationScreen: React.FC = () => {
   };
 
   // 削除処理
-  const handleDelete = async (locationId: number) => {
-    if (!window.confirm('この勤務地を削除してもよろしいですか？')) {
+const handleDelete = async (locationId: number) => {
+  if (!window.confirm('この勤務地を削除してもよろしいですか？')) {
+    return;
+  }
+
+  try {
+    const { apiClient } = await import('../../utils/api');
+    const userId = Number(localStorage.getItem('userId'));
+    
+    if (!userId) {
+      setMessage({ type: 'error', text: 'ユーザーIDが見つかりません' });
       return;
     }
 
-    try {
-      setLocations(prev => prev.filter(loc => loc.id !== locationId));
+    const response = await apiClient.delete(`/api/locations/${locationId}?currentUserId=${userId}`);
+    
+    if (response.status === 204) {
       setMessage({ type: 'success', text: '勤務地が削除されました' });
-    } catch (error) {
-      console.error('勤務地削除エラー:', error);
+      await loadLocations(); // 一覧を再読み込み
+    }
+  } catch (error: any) {
+    console.error('勤務地削除エラー:', error);
+    
+    if (error.response?.status === 403) {
+      setMessage({ type: 'error', text: '削除権限がありません' });
+    } else if (error.response?.status === 404) {
+      setMessage({ type: 'error', text: '勤務地が見つかりません' });
+    } else {
       setMessage({ type: 'error', text: '削除に失敗しました' });
     }
-  };
+  }
+};
 
   // フォームクリア
   const clearForm = () => {
