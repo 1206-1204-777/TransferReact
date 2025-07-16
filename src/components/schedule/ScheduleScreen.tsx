@@ -1,87 +1,22 @@
-import React, { useEffect, useState } from 'react';
+// ScheduleScreen.tsx
+import React, { useCallback, useEffect, useState } from 'react';
+import { ScheduleData, ScheduleItem, SubmittedSchedule } from '../../types';
 
-// Firebase SDKがグローバルにロードされた後に利用可能になる型を宣言
-// シンプルなany型で宣言し、ランタイムでの存在を期待する
-declare global {
-  interface Window {
-    firebase: any; // Firebaseのグローバルオブジェクト
-  }
-}
-
-// Firebaseの主要な関数と型をTypeScriptに認識させるための宣言
-// window.firebaseオブジェクト経由でアクセスされることを想定し、any型で宣言を簡素化
-declare const initializeApp: any;
-declare const getAuth: any;
-declare const signInAnonymously: any;
-declare const signInWithCustomToken: any;
-declare const onAuthStateChanged: any;
-declare const getFirestore: any;
-declare const doc: any;
-declare const getDoc: any;
-declare const setDoc: any;
-declare const onSnapshot: any;
-declare const collection: any;
-declare const query: any;
-declare const where: any;
-declare const addDoc: any;
-declare const serverTimestamp: any;
-
-// FirebaseのUser型を宣言
-declare type User = any;
-// FirestoreのDocumentData型を宣言
-declare type DocumentData = any;
-// FirestoreのQuerySnapshot型を宣言
-declare type QuerySnapshot<T> = any;
-// FirestoreのQueryDocumentSnapshot型を宣言
-declare type QueryDocumentSnapshot<T> = any;
-
-
-// スケジュールアイテムのインターフェース
-interface ScheduleItem {
-  type: 'work' | 'holiday';
-  startTime?: string;
-  endTime?: string;
-}
-
-// スケジュールデータのインターフェース
-interface ScheduleData {
-  [date: string]: ScheduleItem;
-}
-
-// 提出済みスケジュールのインターフェース
-interface SubmittedSchedule {
-  id: string; // FirestoreのドキュメントIDを使用
-  month: string;
-  submittedAt: string;
-  status: 'submitted' | 'approved' | 'rejected';
-  approverName?: string;
-  workDays: number;
-  holidayDays: number;
-  userId: string; // 提出したユーザーのID
-}
-
-// 一括設定データのインターフェース
 interface BatchSetupData {
-  type: 'work' | 'holiday'; // 勤務日か休日かを選択できるように追加
+  type: 'work' | 'holiday';
   startTime: string;
   endTime: string;
   selectedDates: string[];
 }
 
-// グローバル変数からFirebase設定と認証トークンを取得
-declare const __firebase_config: string;
-declare const __initial_auth_token: string;
-declare const __app_id: string;
-
 export const ScheduleScreen: React.FC = () => {
-  // 状態変数
   const [selectedMonth, setSelectedMonth] = useState(() => {
     const today = new Date();
-    today.setMonth(today.getMonth() + 1); // デフォルトで来月を選択
+    today.setMonth(today.getMonth() + 1);
     return today.toISOString().slice(0, 7);
   });
   const [scheduleData, setScheduleData] = useState<ScheduleData>({});
-  const [loading, setLoading] = useState(true); // 初期ロードはtrue
+  const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [submittedSchedules, setSubmittedSchedules] = useState<SubmittedSchedule[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -90,7 +25,7 @@ export const ScheduleScreen: React.FC = () => {
   const [editingDate, setEditingDate] = useState<string>('');
 
   const [batchData, setBatchData] = useState<BatchSetupData>({
-    type: 'work', // デフォルトは勤務日
+    type: 'work',
     startTime: '09:00',
     endTime: '18:00',
     selectedDates: []
@@ -101,161 +36,86 @@ export const ScheduleScreen: React.FC = () => {
     endTime: '18:00'
   });
 
-  // Firebase関連の状態
-  const [db, setDb] = useState<any>(null);
-  const [auth, setAuth] = useState<any>(null);
-  const [userId, setUserId] = useState<string | null>(null);
-  const [isAuthReady, setIsAuthReady] = useState(false); // 認証準備完了フラグ
+  const [userId, setUserId] = useState<string | null>('123'); // MOCK USER ID - Replace with actual user ID logic
 
-  // Firebaseの初期化と認証
-  useEffect(() => {
-    const initializeFirebase = async () => {
-      try {
-        // __firebase_config が定義されていない場合のフォールバック
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-        
-        // Firebaseの関数がグローバルに利用可能かチェック
-        if (typeof initializeApp !== 'function' || typeof getFirestore !== 'function' || typeof getAuth !== 'function') {
-          throw new Error("Firebase SDK functions are not globally available. Please ensure Firebase SDK is properly loaded in your environment.");
-        }
+  const loadSubmittedSchedules = useCallback(async () => {
+    if (!userId) return;
 
-        const app = initializeApp(firebaseConfig);
-        const firestore = getFirestore(app);
-        const firebaseAuth = getAuth(app);
+    try {
+      const { apiClient } = await import('../../utils/api');
+      const response = await apiClient.get(`/api/schedule/submitted?userId=${userId}`);
 
-        setDb(firestore);
-        setAuth(firebaseAuth);
-
-        const unsubscribe = onAuthStateChanged(firebaseAuth, async (user: User | null) => {
-          if (user) {
-            setUserId(user.uid);
-          } else {
-            // 匿名認証
-            try {
-              // __initial_auth_token が定義されていない場合のフォールバック
-              if (typeof __initial_auth_token !== 'undefined') {
-                await signInWithCustomToken(firebaseAuth, __initial_auth_token);
-              } else {
-                await signInAnonymously(firebaseAuth);
-              }
-            } catch (error: any) {
-              console.error("Firebase Anonymous Auth Error:", error);
-              setMessage({ type: 'error', text: 'Firebase認証に失敗しました。' });
-            }
-          }
-          setIsAuthReady(true); // 認証状態の初期チェックが完了
-        });
-
-        return () => unsubscribe();
-      } catch (error: any) {
-        console.error("Firebase Initialization Error:", error);
-        setMessage({ type: 'error', text: `Firebaseの初期化に失敗しました。詳細: ${error.message}` });
-        setLoading(false);
+      if (response.status === 200) {
+        setSubmittedSchedules(response.data);
       }
-    };
-
-    initializeFirebase();
-  }, []); // 空の依存配列でコンポーネントマウント時に一度だけ実行
-
-  // スケジュールデータと提出済みスケジュールのロード
-  useEffect(() => {
-    // db, userId, isAuthReady が全て揃ってからロードを開始
-    if (db && userId && isAuthReady) {
-      loadScheduleData();
-      // onSnapshotはunsubscribe関数を返すので、クリーンアップのために保持
-      const unsubscribeSubmitted = loadSubmittedSchedules();
-      return () => {
-        if (unsubscribeSubmitted) unsubscribeSubmitted();
-      };
-    } else if (isAuthReady && (!db || !userId)) {
-      // 認証は完了したが、dbまたはuserIdがまだ設定されていない場合（通常は発生しないはずだが、念のため）
-      setLoading(false);
+    } catch (error: any) {
+      console.error('提出履歴取得エラー:', error);
+      setMessage({ type: 'error', text: '提出履歴の読み込みに失敗しました。' });
     }
-  }, [selectedMonth, db, userId, isAuthReady]); // FirebaseインスタンスとuserId、認証準備完了フラグを依存関係に追加
+  }, [userId]);
 
-  // スケジュールデータをFirestoreから読み込み
   const loadScheduleData = async () => {
     setLoading(true);
-    // dbとuserIdがnullの場合は処理を中断
-    if (!db || !userId) {
+    if (!userId) {
       setLoading(false);
       return;
     }
-    try {
-      const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-      // doc, getDoc を直接呼び出す
-      const docRef = doc(db, `artifacts/${appId}/users/${userId}/schedules`, selectedMonth);
-      const docSnap = await getDoc(docRef);
 
-      if (docSnap.exists()) { // docSnap.exists() を使用
-        // Firestoreから取得したデータをScheduleData型にアサーション
-        setScheduleData(docSnap.data().data as ScheduleData || {});
-      } else {
-        setScheduleData({});
-      }
-    } catch (error: any) { // エラー型をanyに
-      console.error('スケジュール取得エラー:', error);
-      setMessage({ type: 'error', text: 'データの読み込みに失敗しました' });
+    try {
+      const { apiClient } = await import('../../utils/api');
+      const [year, month] = selectedMonth.split('-').map(Number);
+      const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+
+      const response = await apiClient.get(`/api/schedule/week?userId=${userId}&start=${startDate}`);
+      const convertedScheduleData = (schedules: any[]): ScheduleData => {
+        const converted: ScheduleData = {};
+        schedules.forEach(schedule => {
+          const dateKey = schedule.date;
+          converted[dateKey] = {
+            type: schedule.isWorkDay ? 'work' : 'holiday',
+            ...(schedule.isWorkDay && {
+              startTime: schedule.startTime,
+              endTime: schedule.endTime
+            })
+          };
+        });
+        return converted;
+      };
+      setScheduleData(convertedScheduleData(response.data));
+    } catch (error: any) {
+      console.error('スケジュールデータ取得エラー:', error);
+      setMessage({ type: 'error', text: 'スケジュールデータの読み込みに失敗しました。' });
     } finally {
       setLoading(false);
     }
   };
 
-  // 提出済みスケジュール一覧をFirestoreから読み込み (リアルタイム更新)
-  const loadSubmittedSchedules = () => {
-    // dbとuserIdがnullの場合は処理を中断
-    if (!db || !userId) return;
-    try {
-      const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-      // collection, query, where を直接呼び出す
-      const submittedCollectionRef = collection(db, `artifacts/${appId}/users/${userId}/submittedSchedules`);
-      const q = query(submittedCollectionRef, where('userId', '==', userId));
-
-      // リアルタイムリスナーを設定
-      const unsubscribe = onSnapshot(q, (snapshot: QuerySnapshot<DocumentData>) => { // onSnapshot を直接呼び出す
-        const schedules: SubmittedSchedule[] = [];
-        snapshot.forEach((doc: QueryDocumentSnapshot<DocumentData>) => {
-          // Firestoreから取得したデータをSubmittedSchedule型にアサーションし、idをdoc.idで上書き
-          schedules.push({ ...(doc.data() as SubmittedSchedule), id: doc.id });
-        });
-        // 提出日時でソート (新しいものが上に来るように)
-        setSubmittedSchedules(schedules.sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime()));
-      }, (error: any) => { // エラー型をanyに
-        console.error('提出済みスケジュール取得エラー (リアルタイム):', error);
-        setMessage({ type: 'error', text: '提出履歴の読み込みに失敗しました' });
-      });
-
-      // クリーンアップ関数を返す
-      return () => unsubscribe();
-    } catch (error: any) { // エラー型をanyに
-      console.error('提出済みスケジュール取得エラー:', error);
+  useEffect(() => {
+    if (userId) {
+      loadScheduleData();
+      loadSubmittedSchedules();
+    } else {
+      setLoading(false);
     }
-  };
+  }, [selectedMonth, userId, loadSubmittedSchedules]);
 
-  // カレンダーの日付生成
   const generateCalendarDays = (yearMonth: string) => {
     const [year, month] = yearMonth.split('-').map(Number);
     const firstDay = new Date(year, month - 1, 1);
     const lastDay = new Date(year, month, 0);
     const daysInMonth = lastDay.getDate();
-    const startWeekday = firstDay.getDay(); // 0: 日, 1: 月, ..., 6: 土
+    const startWeekday = firstDay.getDay();
 
     const days = [];
-
-    // 前月の空白日
     for (let i = 0; i < startWeekday; i++) {
       days.push(null);
     }
-
-    // 今月の日付
     for (let day = 1; day <= daysInMonth; day++) {
       days.push(day);
     }
-
     return { days, year, month };
   };
 
-  // 日付のスケジュール更新
   const updateDaySchedule = (day: number, type: 'work' | 'holiday') => {
     const { year, month } = generateCalendarDays(selectedMonth);
     const dateKey = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
@@ -263,21 +123,18 @@ export const ScheduleScreen: React.FC = () => {
     setScheduleData((prev: ScheduleData) => {
       const newData = { ...prev };
       if (newData[dateKey]?.type === type) {
-        // 同じタイプを再度クリックした場合、設定を解除
         delete newData[dateKey];
       } else {
-        // 新しいタイプを設定
         newData[dateKey] = {
           type,
           ...(type === 'work' ? { startTime: '09:00', endTime: '18:00' } : {})
         };
       }
-      saveScheduleData(newData); // 変更を保存
+      saveScheduleData(newData);
       return newData;
     });
   };
 
-  // 個別時間設定モーダルを開く
   const openIndividualEdit = (day: number) => {
     const { year, month } = generateCalendarDays(selectedMonth);
     const dateKey = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
@@ -299,7 +156,6 @@ export const ScheduleScreen: React.FC = () => {
     setShowIndividualEdit(true);
   };
 
-  // 個別時間設定の保存
   const saveIndividualTime = () => {
     if (individualData.startTime >= individualData.endTime) {
       setMessage({ type: 'error', text: '終了時間は開始時間より後に設定してください' });
@@ -307,7 +163,6 @@ export const ScheduleScreen: React.FC = () => {
     }
 
     setScheduleData((prev: ScheduleData) => {
-      // 明示的にScheduleItem型にアサーション
       const updatedItem: ScheduleItem = {
         type: 'work',
         startTime: individualData.startTime,
@@ -317,7 +172,7 @@ export const ScheduleScreen: React.FC = () => {
         ...prev,
         [editingDate]: updatedItem
       };
-      saveScheduleData(newData); // 変更を保存
+      saveScheduleData(newData);
       return newData;
     });
 
@@ -325,7 +180,6 @@ export const ScheduleScreen: React.FC = () => {
     setMessage({ type: 'success', text: '勤務時間を設定しました' });
   };
 
-  // 一括設定用の日付選択
   const toggleBatchDate = (day: number) => {
     const { year, month } = generateCalendarDays(selectedMonth);
     const dateKey = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
@@ -338,7 +192,6 @@ export const ScheduleScreen: React.FC = () => {
     }));
   };
 
-  // 一括設定の適用
   const applyBatchSettings = () => {
     if (batchData.selectedDates.length === 0) {
       setMessage({ type: 'error', text: '設定する日付を選択してください' });
@@ -363,13 +216,13 @@ export const ScheduleScreen: React.FC = () => {
           newData[dateKey] = { type: 'holiday' } as ScheduleItem;
         }
       });
-      saveScheduleData(newData); // 変更を保存
+      saveScheduleData(newData);
       return newData;
     });
 
     setBatchData((prev: BatchSetupData) => ({
       ...prev,
-      type: 'work', // リセット時にデフォルトを勤務日に戻す
+      type: 'work',
       startTime: '09:00',
       endTime: '18:00',
       selectedDates: []
@@ -378,7 +231,6 @@ export const ScheduleScreen: React.FC = () => {
     setMessage({ type: 'success', text: `${batchData.selectedDates.length}日のスケジュールを一括設定しました` });
   };
 
-  // 平日を出勤日に設定
   const setAllWorkDays = () => {
     const { days, year, month } = generateCalendarDays(selectedMonth);
     const newSchedule: ScheduleData = { ...scheduleData };
@@ -386,8 +238,8 @@ export const ScheduleScreen: React.FC = () => {
     days.forEach(day => {
       if (day) {
         const dateKey = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-        const dayOfWeek = new Date(year, month - 1, day).getDay(); // 0: 日, 6: 土
-        if (dayOfWeek !== 0 && dayOfWeek !== 6) { // 平日のみ
+        const dayOfWeek = new Date(year, month - 1, day).getDay();
+        if (dayOfWeek !== 0 && dayOfWeek !== 6) {
           newSchedule[dateKey] = {
             type: 'work',
             startTime: '09:00',
@@ -398,49 +250,61 @@ export const ScheduleScreen: React.FC = () => {
     });
 
     setScheduleData(newSchedule);
-    saveScheduleData(newSchedule); // 変更を保存
+    saveScheduleData(newSchedule);
     setMessage({ type: 'success', text: '平日を出勤日に設定しました' });
   };
 
-  // スケジュールクリア
   const clearSchedule = () => {
     setScheduleData({});
-    saveScheduleData({}); // クリアを保存
+    saveScheduleData({});
     setMessage({ type: 'success', text: 'スケジュールをクリアしました' });
   };
 
-  // スケジュールデータをFirestoreに保存
   const saveScheduleData = async (data: ScheduleData) => {
-    if (!db || !userId) {
+    if (!userId) {
       setMessage({ type: 'error', text: 'データの保存に失敗しました: 認証されていません。' });
       return;
     }
     try {
-      const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-      // doc, setDoc, serverTimestamp を直接呼び出す
-      const docRef = doc(db, `artifacts/${appId}/users/${userId}/schedules`, selectedMonth);
-      await setDoc(docRef, { data: data, lastUpdated: serverTimestamp(), userId: userId }, { merge: true });
-      // setMessage({ type: 'success', text: 'スケジュールを自動保存しました' }); // 自動保存メッセージは頻繁すぎるのでコメントアウト
-    } catch (error: any) { // エラー型をanyに
+      const { apiClient } = await import('../../utils/api');
+
+      // Convert scheduleData to a list of ScheduleDayDto compatible objects
+      const daysToSend = Object.keys(data).map(dateKey => {
+        const item = data[dateKey];
+        // Ensure the type sent matches backend's WorkType enum (e.g., "WORK", "HOLIDAY")
+        return {
+          date: dateKey,
+          type: item.type.toUpperCase(), // Convert 'work' to 'WORK', 'holiday' to 'HOLIDAY'
+          // If your backend needs startTime/endTime for WORK type, include them here.
+          // For now, based on ScheduleDayDto.java, only date and type are mandatory.
+        };
+      });
+
+      const requestBody = {
+        userId: Number(userId),
+        days: daysToSend,
+      };
+
+      const response = await apiClient.post('/api/schedule/save', requestBody); // Assuming a save endpoint exists
+
+      if (response.status === 200) {
+        // setMessage({ type: 'success', text: 'スケジュールを自動保存しました' });
+      } else {
+        setMessage({ type: 'error', text: 'スケジュールデータの保存に失敗しました' });
+      }
+    } catch (error: any) {
       console.error('スケジュール保存エラー:', error);
       setMessage({ type: 'error', text: 'スケジュールデータの保存に失敗しました' });
     }
   };
 
-  // スケジュール提出
+
   const submitSchedule = async () => {
-    if (!db || !userId) {
+    if (!userId) {
       setMessage({ type: 'error', text: '提出に失敗しました: 認証されていません。' });
       return;
     }
 
-    const workDays = Object.values(scheduleData).filter((item: ScheduleItem) => item.type === 'work').length;
-    const holidayDays = Object.values(scheduleData).filter((item: ScheduleItem) => item.type === 'holiday').length;
-
-    if (workDays === 0 && holidayDays === 0) {
-      setMessage({ type: 'error', text: 'スケジュールを入力してください' });
-      return;
-    }
     const stats = getScheduleStats();
     if (stats.unsetDays > 0) {
       setMessage({ type: 'error', text: '全ての日付にスケジュールを設定してから提出してください' });
@@ -449,41 +313,56 @@ export const ScheduleScreen: React.FC = () => {
 
     setIsSubmitting(true);
     try {
-      const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-      // addDoc, collection を直接呼び出す
-      await addDoc(collection(db, `artifacts/${appId}/users/${userId}/submittedSchedules`), {
-        month: selectedMonth,
-        submittedAt: new Date().toISOString(),
-        status: 'submitted',
-        workDays: workDays,
-        holidayDays: holidayDays,
-        userId: userId,
-        // approverNameは承認後に設定される
+      const { apiClient } = await import('../../utils/api');
+
+      // 🚨 ここを修正: バックエンドのScheduleRequestDtoに合わせる
+      // scheduleData を List<ScheduleDayDto> の形に変換
+      const daysToSubmit = Object.keys(scheduleData).map(dateKey => {
+        const item = scheduleData[dateKey];
+        // バックエンドのWorkType (WORK, REMOTE, HOLIDAY) に合わせる
+        let typeString = item.type.toUpperCase();
+        // 必要に応じてREMOTEなどを追加
+        // if (item.type === 'remote') { typeString = 'REMOTE'; }
+
+        return {
+          date: dateKey, // "YYYY-MM-DD" 形式
+          type: typeString,
+          // startTime, endTime は ScheduleDayDto にないので送信しない
+          // もしバックエンドで必要なら ScheduleDayDto に追加し、ここで含める
+        };
       });
-      setMessage({ type: 'success', text: 'スケジュールを提出しました' });
-      // 提出後、現在のスケジュールをクリアするかどうかは要件によるが、今回はそのままにする
-    } catch (error: any) { // エラー型をanyに
+
+      const requestData = {
+        userId: Number(userId),
+        days: daysToSubmit, // ここを修正
+        // workDays, holidayDays はバックエンドのScheduleRequestDtoにないので削除
+      };
+
+      const response = await apiClient.post('/api/schedule/submit', requestData);
+
+      if (response.status === 200) {
+        setMessage({ type: 'success', text: 'スケジュールを提出しました' });
+        await loadSubmittedSchedules();
+      }
+    } catch (error: any) {
       console.error('スケジュール提出エラー:', error);
-      setMessage({ type: 'error', text: '提出に失敗しました' });
+      setMessage({ type: 'error', text: error.response?.data?.message || '提出に失敗しました' });
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // 統計情報の計算
   const getScheduleStats = () => {
     const workDays = Object.values(scheduleData).filter((item: ScheduleItem) => item.type === 'work').length;
     const holidayDays = Object.values(scheduleData).filter((item: ScheduleItem) => item.type === 'holiday').length;
     const { days } = generateCalendarDays(selectedMonth);
     const totalDays = days.filter(day => day !== null).length;
     const unsetDays = totalDays - workDays - holidayDays;
-
     return { workDays, holidayDays, unsetDays, totalDays };
   };
 
   const stats = getScheduleStats();
 
-  // メッセージ自動消去
   useEffect(() => {
     if (message) {
       const timer = setTimeout(() => setMessage(null), 5000);
@@ -496,7 +375,6 @@ export const ScheduleScreen: React.FC = () => {
   return (
     <div className="bg-white/70 backdrop-blur-sm rounded-3xl shadow-xl border border-white/20 p-8 font-inter">
       <div className="flex items-center gap-3 mb-6">
-        {/* Calendar Icon */}
         <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-8 h-8 text-blue-600">
           <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
           <line x1="16" y1="2" x2="16" y2="6"></line>
@@ -506,10 +384,8 @@ export const ScheduleScreen: React.FC = () => {
         <h2 className="text-2xl font-bold text-gray-800">スケジュール提出</h2>
       </div>
 
-      {/* ユーザーID表示 */}
       {userId && (
         <div className="mb-4 p-3 bg-blue-50 rounded-lg flex items-center gap-2 text-blue-700 text-sm">
-          {/* User Icon */}
           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
             <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path>
             <circle cx="12" cy="7" r="4"></circle>
@@ -518,7 +394,6 @@ export const ScheduleScreen: React.FC = () => {
         </div>
       )}
 
-      {/* メッセージ表示 */}
       {message && (
         <div className={`mb-6 p-4 rounded-lg flex items-center gap-2 ${
           message.type === 'success'
@@ -526,13 +401,11 @@ export const ScheduleScreen: React.FC = () => {
             : 'bg-red-100 border border-red-300 text-red-700'
         }`}>
           {message.type === 'success' ? (
-            // CheckCircle Icon
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
               <path d="M22 11.08V12a10 10 0 1 1-5.93-8.84"></path>
               <polyline points="22 4 12 14.01 9 11.01"></polyline>
             </svg>
           ) : (
-            // X Icon
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
               <line x1="18" y1="6" x2="6" y2="18"></line>
               <line x1="6" y1="6" x2="18" y2="18"></line>
@@ -542,7 +415,6 @@ export const ScheduleScreen: React.FC = () => {
         </div>
       )}
 
-      {/* 月選択とコントロール */}
       <div className="bg-white rounded-xl shadow-sm border p-6 mb-6">
         <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between mb-4">
           <div>
@@ -563,7 +435,6 @@ export const ScheduleScreen: React.FC = () => {
               onClick={setAllWorkDays}
               className="px-4 py-2 bg-green-100 text-green-700 rounded-lg hover:bg-green-200 transition-colors flex items-center gap-2"
             >
-              {/* Clock Icon */}
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
                 <circle cx="12" cy="12" r="10"></circle>
                 <polyline points="12 6 12 12 16 14"></polyline>
@@ -574,7 +445,6 @@ export const ScheduleScreen: React.FC = () => {
               onClick={() => setShowBatchSetup(true)}
               className="px-4 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-colors flex items-center gap-2"
             >
-              {/* Plus Icon */}
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
                 <line x1="12" y1="5" x2="12" y2="19"></line>
                 <line x1="5" y1="12" x2="19" y2="12"></line>
@@ -585,7 +455,6 @@ export const ScheduleScreen: React.FC = () => {
               onClick={clearSchedule}
               className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors flex items-center gap-2"
             >
-              {/* RefreshCw Icon */}
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
                 <path d="M23 4v6h-6"></path>
                 <path d="M1 20v-6h6"></path>
@@ -596,7 +465,6 @@ export const ScheduleScreen: React.FC = () => {
           </div>
         </div>
 
-        {/* 統計情報 */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-4 bg-gray-50 rounded-lg">
           <div className="text-center">
             <div className="text-2xl font-bold text-blue-600">{stats.workDays}</div>
@@ -617,7 +485,6 @@ export const ScheduleScreen: React.FC = () => {
         </div>
       </div>
 
-      {/* カレンダー */}
       <div className="bg-white rounded-xl shadow-sm border p-6 mb-6">
         <h3 className="text-lg font-semibold text-gray-800 mb-4">
           {year}年{month}月のスケジュール
@@ -631,7 +498,6 @@ export const ScheduleScreen: React.FC = () => {
         ) : (
           <div>
             <div className="grid grid-cols-7 gap-1 mb-4">
-              {/* 曜日ヘッダー */}
               {['日', '月', '火', '水', '木', '金', '土'].map((day, index) => (
                 <div key={day} className={`p-3 text-center font-medium ${
                   index === 0 ? 'text-red-600' : index === 6 ? 'text-blue-600' : 'text-gray-700'
@@ -641,7 +507,6 @@ export const ScheduleScreen: React.FC = () => {
               ))}
             </div>
 
-            {/* カレンダーの日付 */}
             <div className="grid grid-cols-7 gap-1">
               {days.map((day, index) => {
                 if (!day) {
@@ -671,7 +536,6 @@ export const ScheduleScreen: React.FC = () => {
                     >
                       <div className="text-sm font-medium mb-1">{day}</div>
 
-                      {/* 勤務時間表示 */}
                       {scheduleItem?.type === 'work' && scheduleItem.startTime && scheduleItem.endTime && (
                         <div className="text-xs text-blue-700 mb-1">
                           {scheduleItem.startTime}-{scheduleItem.endTime}
@@ -717,7 +581,6 @@ export const ScheduleScreen: React.FC = () => {
                               className="w-6 h-6 rounded text-xs font-bold bg-green-200 text-green-600 hover:bg-green-300 transition-colors flex items-center justify-center"
                               title="時間設定"
                             >
-                              {/* Edit Icon */}
                               <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3">
                                 <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
                                 <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
@@ -729,7 +592,6 @@ export const ScheduleScreen: React.FC = () => {
 
                       {showBatchSetup && isBatchSelected && (
                         <div className="absolute top-1 right-1">
-                          {/* CheckCircle Icon */}
                           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 text-yellow-600">
                             <path d="M22 11.08V12a10 10 0 1 1-5.93-8.84"></path>
                             <polyline points="22 4 12 14.01 9 11.01"></polyline>
@@ -755,7 +617,6 @@ export const ScheduleScreen: React.FC = () => {
         </div>
       </div>
 
-      {/* 提出ボタン */}
       <div className="bg-white rounded-xl shadow-sm border p-6 mb-6">
         <div className="flex flex-col sm:flex-row gap-4 items-center justify-between">
           <div className="text-sm text-gray-600">
@@ -769,7 +630,6 @@ export const ScheduleScreen: React.FC = () => {
             {isSubmitting ? (
               <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
             ) : (
-              // Send Icon
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
                 <line x1="22" y1="2" x2="11" y2="13"></line>
                 <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
@@ -790,14 +650,12 @@ export const ScheduleScreen: React.FC = () => {
         )}
       </div>
 
-      {/* 一括設定モーダル */}
       {showBatchSetup && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl p-6 max-w-4xl w-full mx-auto max-h-[90vh] overflow-y-auto shadow-lg">
-            <h3 className="text-lg font-semibold text-gray-800 mb-4">一括スケジュール設定</h3> {/* タイトル変更 */}
+            <h3 className="text-lg font-semibold text-gray-800 mb-4">一括スケジュール設定</h3>
 
             <div className="space-y-6">
-              {/* 勤務日/休日選択 */}
               <div className="flex gap-4">
                 <label className="flex items-center">
                   <input
@@ -807,7 +665,7 @@ export const ScheduleScreen: React.FC = () => {
                     checked={batchData.type === 'work'}
                     onChange={(e) => setBatchData((prev: BatchSetupData) => ({ ...prev, type: e.target.value as 'work' | 'holiday' }))}
                     className="form-radio h-4 w-4 text-blue-600 transition-colors duration-150 ease-in-out"
-                    title="勤務日として設定" // title属性を追加
+                    title="勤務日として設定"
                   />
                   <span className="ml-2 text-gray-700">勤務日</span>
                 </label>
@@ -819,13 +677,12 @@ export const ScheduleScreen: React.FC = () => {
                     checked={batchData.type === 'holiday'}
                     onChange={(e) => setBatchData((prev: BatchSetupData) => ({ ...prev, type: e.target.value as 'work' | 'holiday' }))}
                     className="form-radio h-4 w-4 text-red-600 transition-colors duration-150 ease-in-out"
-                    title="休日として設定" // title属性を追加
+                    title="休日として設定"
                   />
                   <span className="ml-2 text-gray-700">休日</span>
                 </label>
               </div>
 
-              {/* 勤務時間設定 (勤務日選択時のみ表示) */}
               {batchData.type === 'work' && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
@@ -855,7 +712,6 @@ export const ScheduleScreen: React.FC = () => {
                 </div>
               )}
 
-              {/* 選択した日付数表示 */}
               <div className="text-sm text-gray-600 bg-blue-50 p-3 rounded-lg">
                 選択した日付: {batchData.selectedDates.length}日
                 {batchData.selectedDates.length > 0 && (
@@ -867,14 +723,12 @@ export const ScheduleScreen: React.FC = () => {
                 )}
               </div>
 
-              {/* モーダル内カレンダー */}
               <div className="border rounded-lg p-4 bg-gray-50">
                 <h4 className="font-medium text-gray-800 mb-3">
                   {year}年{month}月 - 適用する日付を選択してください
                 </h4>
 
                 <div className="grid grid-cols-7 gap-1 mb-2">
-                  {/* 曜日ヘッダー */}
                   {['日', '月', '火', '水', '木', '金', '土'].map((day, index) => (
                     <div key={day} className={`p-2 text-center font-medium text-xs ${
                       index === 0 ? 'text-red-600' : index === 6 ? 'text-blue-600' : 'text-gray-700'
@@ -884,7 +738,6 @@ export const ScheduleScreen: React.FC = () => {
                   ))}
                 </div>
 
-                {/* カレンダーの日付 */}
                 <div className="grid grid-cols-7 gap-1">
                   {days.map((day, index) => {
                     if (!day) {
@@ -919,7 +772,6 @@ export const ScheduleScreen: React.FC = () => {
                             </div>
                           )}
                            {isSelected && (
-                            // CheckCircle Icon
                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 mt-1">
                               <path d="M22 11.08V12a10 10 0 1 1-5.93-8.84"></path>
                               <polyline points="22 4 12 14.01 9 11.01"></polyline>
@@ -931,7 +783,6 @@ export const ScheduleScreen: React.FC = () => {
                   })}
                 </div>
 
-                {/* カレンダー操作ボタン */}
                 <div className="flex flex-wrap gap-2 mt-4">
                   <button
                     onClick={() => {
@@ -940,7 +791,7 @@ export const ScheduleScreen: React.FC = () => {
                         if (day) {
                           const dateObj = new Date(year, month - 1, day);
                           const dayOfWeek = dateObj.getDay();
-                          if (dayOfWeek !== 0 && dayOfWeek !== 6) { // 平日のみ
+                          if (dayOfWeek !== 0 && dayOfWeek !== 6) {
                             const dateKey = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
                             workdays.push(dateKey);
                           }
@@ -972,7 +823,6 @@ export const ScheduleScreen: React.FC = () => {
                 disabled={batchData.selectedDates.length === 0}
                 className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
               >
-                {/* Save Icon */}
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
                   <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
                   <polyline points="17 21 17 13 7 13 7 21"></polyline>
@@ -987,7 +837,6 @@ export const ScheduleScreen: React.FC = () => {
                 }}
                 className="flex-1 px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors flex items-center justify-center gap-2"
               >
-                {/* X Icon */}
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
                   <line x1="18" y1="6" x2="6" y2="18"></line>
                   <line x1="6" y1="6" x2="18" y2="18"></line>
@@ -999,7 +848,6 @@ export const ScheduleScreen: React.FC = () => {
         </div>
       )}
 
-      {/* 個別時間設定モーダル */}
       {showIndividualEdit && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl p-6 max-w-md w-full mx-auto shadow-lg">
@@ -1043,7 +891,6 @@ export const ScheduleScreen: React.FC = () => {
                 onClick={saveIndividualTime}
                 className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
               >
-                {/* Save Icon */}
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
                   <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
                   <polyline points="17 21 17 13 7 13 7 21"></polyline>
@@ -1055,7 +902,6 @@ export const ScheduleScreen: React.FC = () => {
                 onClick={() => setShowIndividualEdit(false)}
                 className="flex-1 px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors flex items-center justify-center gap-2"
               >
-                {/* X Icon */}
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
                   <line x1="18" y1="6" x2="6" y2="18"></line>
                   <line x1="6" y1="6" x2="18" y2="18"></line>
@@ -1067,7 +913,6 @@ export const ScheduleScreen: React.FC = () => {
         </div>
       )}
 
-      {/* 提出履歴 */}
       <div className="bg-white rounded-xl shadow-sm border">
         <div className="p-6 border-b border-gray-200">
           <h3 className="text-lg font-semibold text-gray-800">提出履歴</h3>
@@ -1107,7 +952,6 @@ export const ScheduleScreen: React.FC = () => {
                   <tr key={schedule.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center gap-2">
-                        {/* Calendar Icon */}
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 text-blue-500">
                           <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
                           <line x1="16" y1="2" x2="16" y2="6"></line>
@@ -1146,21 +990,18 @@ export const ScheduleScreen: React.FC = () => {
                           : 'bg-yellow-100 text-yellow-800'
                       }`}>
                         {schedule.status === 'approved' && (
-                          // CheckCircle Icon
                           <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3 mr-1">
                             <path d="M22 11.08V12a10 10 0 1 1-5.93-8.84"></path>
                             <polyline points="22 4 12 14.01 9 11.01"></polyline>
                           </svg>
                         )}
                         {schedule.status === 'rejected' && (
-                          // X Icon
                           <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3 mr-1">
                             <line x1="18" y1="6" x2="6" y2="18"></line>
                             <line x1="6" y1="6" x2="18" y2="18"></line>
                           </svg>
                         )}
                         {schedule.status === 'submitted' && (
-                          // Clock Icon
                           <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3 mr-1">
                             <circle cx="12" cy="12" r="10"></circle>
                             <polyline points="12 6 12 12 16 14"></polyline>

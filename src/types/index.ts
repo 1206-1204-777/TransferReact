@@ -31,13 +31,36 @@ export interface Tab {
   label: string;
 }
 
-export interface Schedule {
-  [key: string]: {
-    type: string;
-    startTime: string;
-    endTime: string;
-  };
+// Moved from ScheduleScreen.tsx
+export interface ScheduleItem {
+  type: 'work' | 'holiday';
+  startTime?: string;
+  endTime?: string;
 }
+
+// Moved from ScheduleScreen.tsx
+export interface ScheduleData {
+  [date: string]: ScheduleItem;
+}
+
+// Updated the Schedule interface to use ScheduleData
+export interface Schedule {
+  [key: string]: ScheduleItem; // Use ScheduleItem here
+}
+
+
+// 提出済みスケジュールのインターフェース (Moved from ScheduleScreen.tsx, adjusted for backend structure)
+export interface SubmittedSchedule {
+  id: string; // FirestoreのドキュメントIDを使用 (or backend ID)
+  month: string;
+  submittedAt: string;
+  status: 'submitted' | 'approved' | 'rejected';
+  approverName?: string;
+  workDays: number;
+  holidayDays: number;
+  userId: string; // 提出したユーザーのID (assuming string from Firebase)
+}
+
 
 // 修正申請の型定義を一つに統合
 // - userId を必須プロパティとして追加
@@ -149,4 +172,13 @@ export interface OvertimeRequestDto {
   startTime: string;
   endTime: string;
   reason: string;
+}
+
+// バックエンドのScheduleRequestDto形式
+export interface ScheduleRequestDto { // Export this interface
+  userId: number;
+  month: string;
+  scheduleData: ScheduleData; // Now correctly references the imported ScheduleData
+  workDays: number;
+  holidayDays: number;
 }
