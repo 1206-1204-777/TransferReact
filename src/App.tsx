@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { AttendanceScreen } from './components/attendance/AttendanceScreen';
 import { LoginScreen } from './components/auth/LoginScreen';
 import { CustomModal } from './components/common/CustomModal';
@@ -13,27 +13,80 @@ import { initialMockUser } from './utils/constants';
 
 const App: React.FC = () => {
   const [activeScreen, setActiveScreen] = useState('attendance');
-  const [isLoggedIn, setIsLoggedIn] = useState(!!localStorage.getItem('jwtToken'));
-  const [user, setUser] = useState<User>(() => {
-    const storedUsername = localStorage.getItem('username');
-    const storedUserId = localStorage.getItem('userId');
-    const storedUserRole = localStorage.getItem('userRole');
-    if (storedUsername && storedUserId) {
-      return {
-        id: Number(storedUserId),
-        name: storedUsername,
-        department: storedUserRole === 'ADMIN' ? '管理者' : '一般ユーザー',
-        avatar: '👤'
-      };
-    }
-    return initialMockUser;
-  });
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [user, setUser] = useState<User>(initialMockUser);
+
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+
+  useEffect(() => {
+    const checkAuthStatus = () => {
+      const jwtToken = localStorage.getItem('jwtToken');
+      const storedUserId = localStorage.getItem('currentUserId');
+      const storedUsername = localStorage.getItem('username');
+      const storedUserRole = localStorage.getItem('userRole');
+
+      if (jwtToken && storedUserId && storedUsername && storedUserRole) {
+        try {
+          const payload = JSON.parse(atob(jwtToken.split('.')[1]));
+          const expirationTime = payload.exp * 1000;
+
+          if (expirationTime > Date.now()) {
+            setIsLoggedIn(true);
+            setUser({
+              id: Number(storedUserId),
+              name: storedUsername,
+              department: storedUserRole === 'ADMIN' ? '管理者' : '一般ユーザー',
+              avatar: '👤'
+            });
+            const lastActiveScreen = localStorage.getItem('lastActiveScreen');
+            if (lastActiveScreen) {
+              setActiveScreen(lastActiveScreen);
+            }
+          } else {
+            console.log('JWTトークンが期限切れです。自動的にログアウトします。');
+            // JWT関連のlocalStorageのみクリアし、勤務状態はクリアしない
+            localStorage.removeItem('jwtToken');
+            localStorage.removeItem('currentUserId');
+            localStorage.removeItem('username');
+            localStorage.removeItem('userRole');
+            // localStorage.removeItem('lastActiveScreen'); // 勤務状態が残るようにクリアしない
+            setIsLoggedIn(false);
+            setUser(initialMockUser);
+            // setActiveScreen('attendance'); // ログイン画面に戻るが、勤務状態はAttendanceScreenが管理
+          }
+        } catch (error) {
+          console.error('JWTトークンの解析に失敗しました。自動的にログアウトします。', error);
+          // JWT関連のlocalStorageのみクリアし、勤務状態はクリアしない
+          localStorage.removeItem('jwtToken');
+          localStorage.removeItem('currentUserId');
+          localStorage.removeItem('username');
+          localStorage.removeItem('userRole');
+          // localStorage.removeItem('lastActiveScreen'); // 勤務状態が残るようにクリアしない
+          setIsLoggedIn(false);
+          setUser(initialMockUser);
+          // setActiveScreen('attendance'); // ログイン画面に戻るが、勤務状態はAttendanceScreenが管理
+        }
+      } else {
+        setIsLoggedIn(false);
+        setUser(initialMockUser);
+        setActiveScreen('attendance');
+      }
+    };
+
+    checkAuthStatus();
+
+    const interval = setInterval(checkAuthStatus, 1000); // 1秒ごとにチェック
+
+    return () => clearInterval(interval);
+  }, []);
 
   const handleLoginSuccess = (loggedInUser: User) => {
     setUser(loggedInUser);
     setIsLoggedIn(true);
-    setActiveScreen('attendance');
+    // ログイン成功時にAttendanceScreenの初期状態をリセットしない
+    // AttendanceScreenがlocalStorageから状態を読み込むため、ここでは特に何もしない
+    const lastActiveScreen = localStorage.getItem('lastActiveScreen');
+    setActiveScreen(lastActiveScreen || 'attendance'); // 最後に見ていた画面、またはデフォルト
   };
 
   const handleLogout = () => {
@@ -43,15 +96,26 @@ const App: React.FC = () => {
   const confirmLogout = () => {
     setShowLogoutConfirm(false);
     localStorage.removeItem('jwtToken');
-    localStorage.removeItem('userId');
+    localStorage.removeItem('currentUserId');
     localStorage.removeItem('username');
     localStorage.removeItem('userRole');
+    localStorage.removeItem('lastActiveScreen'); // 明示的なログアウトでは全てクリア
+    // 勤務状態のlocalStorageはクリアしない
+    // localStorage.removeItem('currentClockIn');
+    // localStorage.removeItem('currentClockOut');
+    // localStorage.removeItem('currentAttendanceStatus');
     setIsLoggedIn(false);
+    setUser(initialMockUser);
+    setActiveScreen('attendance');
     console.log('ログアウトしました');
   };
 
-  // renderScreen関数は不要になるか、シンプルになります。
-  // 各画面コンポーネントを直接レンダリングし、CSSで表示・非表示を制御します。
+  useEffect(() => {
+    if (isLoggedIn) {
+      localStorage.setItem('lastActiveScreen', activeScreen);
+    }
+  }, [activeScreen, isLoggedIn]);
+
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 font-inter">
@@ -74,7 +138,6 @@ const App: React.FC = () => {
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-8">
             <Navigation activeScreen={activeScreen} onScreenChange={setActiveScreen} />
             
-            {/* ここが変更点: 各画面コンポーネントを常にレンダリングし、CSSで表示を制御 */}
             <div style={{ display: activeScreen === 'attendance' ? 'block' : 'none' }}>
               <AttendanceScreen />
             </div>
@@ -90,10 +153,9 @@ const App: React.FC = () => {
             <div style={{ display: activeScreen === 'location' ? 'block' : 'none' }}>
               <LocationScreen />
             </div>
-            {/* デフォルトの画面が必要な場合、ここに含めるか、上記いずれかをデフォルトとします */}
             {activeScreen !== 'attendance' && activeScreen !== 'edit' && activeScreen !== 'holiday' && activeScreen !== 'schedule' && activeScreen !== 'location' && (
               <div style={{ display: 'block' }}>
-                <AttendanceScreen /> {/* 未知のactiveScreenの場合のデフォルト */}
+                <AttendanceScreen />
               </div>
             )}
           </div>
