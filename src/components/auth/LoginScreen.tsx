@@ -26,7 +26,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
         const data = response.data;
         if (data.token) {
           localStorage.setItem('jwtToken', data.token);
-          localStorage.setItem('userId', data.userId);
+          // 🚨 修正点: 'userId' を 'currentUserId' に変更
+          localStorage.setItem('currentUserId', data.userId); // ScheduleScreen.tsxが読み込むキー名に合わせる
           localStorage.setItem('username', data.username);
           localStorage.setItem('userRole', data.role);
 

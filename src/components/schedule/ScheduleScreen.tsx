@@ -1,6 +1,7 @@
 // ScheduleScreen.tsx
 import React, { useCallback, useEffect, useState } from 'react';
 import { ScheduleData, ScheduleItem, SubmittedSchedule } from '../../types';
+import { apiClient } from '../../utils/api'; // apiClientを直接インポート
 
 interface BatchSetupData {
   type: 'work' | 'holiday';
@@ -36,13 +37,34 @@ export const ScheduleScreen: React.FC = () => {
     endTime: '18:00'
   });
 
-  const [userId, setUserId] = useState<string | null>('123'); // MOCK USER ID - Replace with actual user ID logic
+  // 🚨 修正点: userId を動的に取得するように変更
+  // 実際のアプリケーションでは、認証コンテキストやAPI呼び出しを通じてユーザーIDを取得します。
+  // ここでは例として、localStorageから取得するか、デフォルト値を使用する形にしています。
+  // 本番環境では、セキュアな認証メカニズムから取得するようにしてください。
+  const [userId, setUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    // ユーザーIDをロードする例
+    // 実際には、ログイン時にJWTからデコードしたり、認証APIから取得したりします。
+    const storedUserId = localStorage.getItem('currentUserId'); // 例: ログイン時に保存したユーザーID
+    if (storedUserId) {
+      setUserId(storedUserId);
+    } else {
+      // 🚨 デバッグ用: userIdが取得できない場合に一時的に固定値を設定
+      // 本番環境ではこの行は削除し、実際の認証フローを実装してください。
+      setUserId('456'); // 例: 仮のユーザーID
+      console.warn("ユーザーIDが設定されていません。ログイン状態を確認してください。一時的に固定IDを使用します。");
+    }
+  }, []);
+
 
   const loadSubmittedSchedules = useCallback(async () => {
-    if (!userId) return;
+    if (!userId) {
+      console.warn("ユーザーIDがないため、提出履歴をロードできません。");
+      return;
+    }
 
     try {
-      const { apiClient } = await import('../../utils/api');
       const response = await apiClient.get(`/api/schedule/submitted?userId=${userId}`);
 
       if (response.status === 200) {
@@ -62,7 +84,6 @@ export const ScheduleScreen: React.FC = () => {
     }
 
     try {
-      const { apiClient } = await import('../../utils/api');
       const [year, month] = selectedMonth.split('-').map(Number);
       const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
 
@@ -72,10 +93,10 @@ export const ScheduleScreen: React.FC = () => {
         schedules.forEach(schedule => {
           const dateKey = schedule.date;
           converted[dateKey] = {
-            type: schedule.isWorkDay ? 'work' : 'holiday',
-            ...(schedule.isWorkDay && {
-              startTime: schedule.startTime,
-              endTime: schedule.endTime
+            type: schedule.type.toLowerCase(), // WORK -> work, HOLIDAY -> holiday
+            ...(schedule.type === 'WORK' && { // バックエンドからWORKの場合のみstartTime/endTimeを期待
+              startTime: schedule.startTime || '09:00', // デフォルト値も設定
+              endTime: schedule.endTime || '18:00'
             })
           };
         });
@@ -91,13 +112,14 @@ export const ScheduleScreen: React.FC = () => {
   };
 
   useEffect(() => {
+    // userIdが存在する場合のみデータをロード
     if (userId) {
       loadScheduleData();
       loadSubmittedSchedules();
     } else {
-      setLoading(false);
+      setLoading(false); // userIdがない場合はローディングを終了
     }
-  }, [selectedMonth, userId, loadSubmittedSchedules]);
+  }, [selectedMonth, userId, loadSubmittedSchedules]); // userIdを依存配列に追加
 
   const generateCalendarDays = (yearMonth: string) => {
     const [year, month] = yearMonth.split('-').map(Number);
@@ -123,6 +145,7 @@ export const ScheduleScreen: React.FC = () => {
     setScheduleData((prev: ScheduleData) => {
       const newData = { ...prev };
       if (newData[dateKey]?.type === type) {
+        // 同じタイプを再度クリックした場合、設定を解除（未設定にする）
         delete newData[dateKey];
       } else {
         newData[dateKey] = {
@@ -130,7 +153,7 @@ export const ScheduleScreen: React.FC = () => {
           ...(type === 'work' ? { startTime: '09:00', endTime: '18:00' } : {})
         };
       }
-      saveScheduleData(newData);
+      saveScheduleData(newData); // 自動保存
       return newData;
     });
   };
@@ -146,6 +169,7 @@ export const ScheduleScreen: React.FC = () => {
         endTime: existingData.endTime || '18:00'
       });
     } else {
+      // 勤務日ではない場合、デフォルト値を設定
       setIndividualData({
         startTime: '09:00',
         endTime: '18:00'
@@ -164,7 +188,7 @@ export const ScheduleScreen: React.FC = () => {
 
     setScheduleData((prev: ScheduleData) => {
       const updatedItem: ScheduleItem = {
-        type: 'work',
+        type: 'work', // 個別時間設定は勤務日のみを想定
         startTime: individualData.startTime,
         endTime: individualData.endTime
       };
@@ -172,7 +196,7 @@ export const ScheduleScreen: React.FC = () => {
         ...prev,
         [editingDate]: updatedItem
       };
-      saveScheduleData(newData);
+      saveScheduleData(newData); // 自動保存
       return newData;
     });
 
@@ -216,10 +240,11 @@ export const ScheduleScreen: React.FC = () => {
           newData[dateKey] = { type: 'holiday' } as ScheduleItem;
         }
       });
-      saveScheduleData(newData);
+      saveScheduleData(newData); // 自動保存
       return newData;
     });
 
+    // 一括設定後、選択状態をリセット
     setBatchData((prev: BatchSetupData) => ({
       ...prev,
       type: 'work',
@@ -233,30 +258,36 @@ export const ScheduleScreen: React.FC = () => {
 
   const setAllWorkDays = () => {
     const { days, year, month } = generateCalendarDays(selectedMonth);
-    const newSchedule: ScheduleData = { ...scheduleData };
+    const newSchedule: ScheduleData = { ...scheduleData }; // 既存のスケジュールをベースにする
 
     days.forEach(day => {
       if (day) {
         const dateKey = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
         const dayOfWeek = new Date(year, month - 1, day).getDay();
+        // 土日以外を「出勤日」に設定
         if (dayOfWeek !== 0 && dayOfWeek !== 6) {
           newSchedule[dateKey] = {
             type: 'work',
             startTime: '09:00',
             endTime: '18:00'
           };
+        } else {
+          // 土日は「休日」に設定（既存のスケジュールを上書き）
+          newSchedule[dateKey] = {
+            type: 'holiday'
+          };
         }
       }
     });
 
     setScheduleData(newSchedule);
-    saveScheduleData(newSchedule);
-    setMessage({ type: 'success', text: '平日を出勤日に設定しました' });
+    saveScheduleData(newSchedule); // 自動保存
+    setMessage({ type: 'success', text: '平日を出勤日、土日を休日に設定しました' });
   };
 
   const clearSchedule = () => {
     setScheduleData({});
-    saveScheduleData({});
+    saveScheduleData({}); // 自動保存
     setMessage({ type: 'success', text: 'スケジュールをクリアしました' });
   };
 
@@ -266,8 +297,6 @@ export const ScheduleScreen: React.FC = () => {
       return;
     }
     try {
-      const { apiClient } = await import('../../utils/api');
-
       // Convert scheduleData to a list of ScheduleDayDto compatible objects
       const daysToSend = Object.keys(data).map(dateKey => {
         const item = data[dateKey];
@@ -275,20 +304,20 @@ export const ScheduleScreen: React.FC = () => {
         return {
           date: dateKey,
           type: item.type.toUpperCase(), // Convert 'work' to 'WORK', 'holiday' to 'HOLIDAY'
-          // If your backend needs startTime/endTime for WORK type, include them here.
-          // For now, based on ScheduleDayDto.java, only date and type are mandatory.
+          // バックエンドのScheduleDayDtoにstartTime/endTimeがないため、ここでは送信しない
+          // もしバックエンドで必要ならScheduleDayDtoに追加し、ここで含める
         };
       });
 
       const requestBody = {
-        userId: Number(userId),
+        userId: Number(userId), // userIdを数値型に変換
         days: daysToSend,
       };
 
-      const response = await apiClient.post('/api/schedule/save', requestBody); // Assuming a save endpoint exists
+      const response = await apiClient.post('/api/schedule/save', requestBody);
 
       if (response.status === 200) {
-        // setMessage({ type: 'success', text: 'スケジュールを自動保存しました' });
+        // setMessage({ type: 'success', text: 'スケジュールを自動保存しました' }); // 自動保存のメッセージは頻繁に出るためコメントアウト
       } else {
         setMessage({ type: 'error', text: 'スケジュールデータの保存に失敗しました' });
       }
@@ -313,9 +342,6 @@ export const ScheduleScreen: React.FC = () => {
 
     setIsSubmitting(true);
     try {
-      const { apiClient } = await import('../../utils/api');
-
-      // 🚨 ここを修正: バックエンドのScheduleRequestDtoに合わせる
       // scheduleData を List<ScheduleDayDto> の形に変換
       const daysToSubmit = Object.keys(scheduleData).map(dateKey => {
         const item = scheduleData[dateKey];
@@ -328,21 +354,19 @@ export const ScheduleScreen: React.FC = () => {
           date: dateKey, // "YYYY-MM-DD" 形式
           type: typeString,
           // startTime, endTime は ScheduleDayDto にないので送信しない
-          // もしバックエンドで必要なら ScheduleDayDto に追加し、ここで含める
         };
       });
 
       const requestData = {
-        userId: Number(userId),
-        days: daysToSubmit, // ここを修正
-        // workDays, holidayDays はバックエンドのScheduleRequestDtoにないので削除
+        userId: Number(userId), // userIdを数値型に変換
+        days: daysToSubmit,
       };
 
       const response = await apiClient.post('/api/schedule/submit', requestData);
 
       if (response.status === 200) {
         setMessage({ type: 'success', text: 'スケジュールを提出しました' });
-        await loadSubmittedSchedules();
+        await loadSubmittedSchedules(); // 提出後に提出履歴を再ロード
       }
     } catch (error: any) {
       console.error('スケジュール提出エラー:', error);
@@ -384,7 +408,8 @@ export const ScheduleScreen: React.FC = () => {
         <h2 className="text-2xl font-bold text-gray-800">スケジュール提出</h2>
       </div>
 
-      {userId && (
+      {/* ユーザーIDの表示と警告 */}
+      {userId ? (
         <div className="mb-4 p-3 bg-blue-50 rounded-lg flex items-center gap-2 text-blue-700 text-sm">
           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
             <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path>
@@ -392,7 +417,17 @@ export const ScheduleScreen: React.FC = () => {
           </svg>
           <span>現在のユーザーID: {userId}</span>
         </div>
+      ) : (
+        <div className="mb-4 p-3 bg-red-100 rounded-lg flex items-center gap-2 text-red-700 text-sm">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="12" y1="8" x2="12" y2="12"></line>
+            <line x1="12" y1="16" x2="12.01" y2="16"></line>
+          </svg>
+          <span>ユーザーIDが取得できませんでした。ログイン状態を確認してください。</span>
+        </div>
       )}
+
 
       {message && (
         <div className={`mb-6 p-4 rounded-lg flex items-center gap-2 ${
