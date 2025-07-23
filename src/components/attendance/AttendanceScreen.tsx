@@ -156,30 +156,42 @@ export const AttendanceScreen: React.FC = () => {
     try {
       setMessage({ type: '', text: '' }); // API呼び出しの前に既存のメッセージをクリア
 
-      const today = new Date().toISOString().split('T')[0];
-      console.log(`API呼び出し: /api/attendance/${userId}/date/${today}`);
-      const response = await apiClient.get(`/api/attendance/${userId}/date/${today}`);
+      // 🚨 修正点: /api/attendance/{userId}/date/{today} の代わりに /api/attendance/{userId}/status を呼び出す
+      console.log(`API呼び出し: /api/attendance/${userId}/status`);
+      const response = await apiClient.get(`/api/attendance/${userId}/status`);
 
-      // 🚨 修正点: APIレスポンスのチェックを強化し、データがない場合は明確にリセットする
-      if (response.status === 200 && response.data && response.data.date && response.data.clockIn) {
-        // Case 1: APIから有効なデータ（出勤時刻を含む）が返ってきた場合
-        const apiClockIn = formatToHHMM(response.data.clockIn);
-        const apiClockOut = formatToHHMM(response.data.clockOut);
-        const apiStatus = apiClockIn && !apiClockOut ? 'working' : 'complete';
-
-        setTodayAttendance(prev => ({
-          ...prev,
-          ...response.data,
-          clockIn: apiClockIn,
-          clockOut: apiClockOut,
-          status: apiStatus
-        }));
-
-        setOriginalClockInTime(apiClockIn); // APIの出勤時刻でoriginalClockInTimeを更新
+      if (response.status === 200 && response.data) {
+        const apiResponse: { working: boolean; clockIn?: string; clockOut?: string; date?: string; } = response.data;
+        
+        // APIから返されたworkingステータスに基づいてtodayAttendanceを更新
+        if (apiResponse.working) {
+          // 勤務中であれば、clockInとstatusを更新
+          const apiClockIn = formatToHHMM(apiResponse.clockIn);
+          setTodayAttendance(prev => ({
+            ...prev,
+            date: apiResponse.date || prev.date, // APIから日付が返されれば更新、なければ現在のものを維持
+            clockIn: apiClockIn,
+            clockOut: null, // 勤務中なのでclockOutはnull
+            status: 'working'
+          }));
+          setOriginalClockInTime(apiClockIn); // originalClockInTimeも更新
+        } else {
+          // 勤務中でなければ、全てリセット
+          setTodayAttendance(prev => ({
+            ...prev,
+            date: new Date().toISOString().split('T')[0], // 今日の日付にリセット
+            clockIn: null,
+            clockOut: null,
+            workHours: '0時間0分',
+            overtime: '0分',
+            breakHours: '0時間（自動）',
+            status: 'complete',
+          }));
+          setOriginalClockInTime(null); // originalClockInTimeもリセット
+        }
       } else {
-        // 🚨 修正点: APIが200 OKだがデータが空、またはclockInがない場合、またはAPIが200 OK以外の場合
-        // データベースに勤務データがない、または勤務中ではないと判断された場合、
-        // フロントエンドのUIも未打刻/退勤済みにリセットする
+        // APIが200 OKだがデータが空、またはAPIが200 OK以外の場合
+        // UIを未打刻/退勤済みにリセットする
         setTodayAttendance(prev => ({
           ...prev,
           date: new Date().toISOString().split('T')[0],
@@ -188,15 +200,15 @@ export const AttendanceScreen: React.FC = () => {
           workHours: '0時間0分',
           overtime: '0分',
           breakHours: '0時間（自動）',
-          status: 'complete', // 未打刻または退勤済みの状態
+          status: 'complete',
         }));
-        setOriginalClockInTime(null); // originalClockInTimeもリセット
-        console.warn('APIから今日の勤怠データが取得できませんでした、または勤務中ではありません。UI状態をリセットします。');
+        setOriginalClockInTime(null);
+        console.warn('APIから勤務ステータスが取得できませんでした、または勤務中ではありません。UI状態をリセットします。');
       }
     } catch (error) {
       console.error('今日の勤怠情報の再検証エラー:', error);
       setMessage({ type: 'error', text: '今日の勤怠情報の取得中にネットワークエラーが発生しました。' });
-      // 🚨 修正点: エラー時もtodayAttendanceを初期状態にリセット
+      // エラー時もtodayAttendanceを初期状態にリセット
       setTodayAttendance(prev => ({
         ...prev,
         date: new Date().toISOString().split('T')[0],
@@ -207,7 +219,7 @@ export const AttendanceScreen: React.FC = () => {
         breakHours: '0時間（自動）',
         status: 'complete',
       }));
-      setOriginalClockInTime(null); // originalClockInTimeもリセット
+      setOriginalClockInTime(null);
     }
   }, [userId]);
 
@@ -467,7 +479,7 @@ export const AttendanceScreen: React.FC = () => {
           };
         });
         setMessage({ type: 'success', text: `打刻時刻を ${newTime} に修正しました` });
-        setIsEditAllowed(false); // 修正成功後、ボタンを非表示にする
+        setIsEditAllowed(false);
         setTimeout(async () => {
           await loadAttendanceHistory(selectedMonth);
           await revalidateTodayAttendance();
